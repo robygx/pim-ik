@@ -1,0 +1,61 @@
+{
+  "_metadata": {
+    "experiment": "window_size_ablation",
+    "dataset": "GRAB",
+    "dataset_path": "/data0/wwb_data/ygx_data/data_ygx_pose+dof/GRAB_training_data_with_swivel.npz",
+    "ik_type": "real-ik",
+    "timestamp": "2026-03-03T02:50:46",
+    "num_frames": 49971,
+    "device": "cuda:0"
+  },
+  "results": {
+    "W=1": {
+      "params_k": 1985.666,
+      "network_latency_ms": 0.21256596222519875,
+      "network_latency_p95_ms": 0.25557056069374084,
+      "ik_latency_ms": 0.05838656798005104,
+      "ik_latency_p95_ms": 0.06070309318602085,
+      "latency_ms": 0.2709525302052498,
+      "latency_p95_ms": 0.3162736538797617,
+      "swivel_mae": 6.766278266906738,
+      "elbow_error_mm": 14.207710540691993,
+      "jerk": 4.557189464569092,
+      "joint_mae": 0.10195496804782679,
+      "window_size": 1,
+      "epoch": 50,
+      "val_loss": 0.26980605721473694
+    },
+    "W=15": {
+      "params_k": 1985.666,
+      "network_latency_ms": 1.8006310500204563,
+      "network_latency_p95_ms": 1.8515519797801971,
+      "ik_latency_ms": 0.04028604086488485,
+      "ik_latency_p95_ms": 0.041554681956768036,
+      "latency_ms": 1.8409170908853412,
+      "latency_p95_ms": 1.8931066617369652,
+      "swivel_mae": 5.793186664581299,
+      "elbow_error_mm": 12.385160403134368,
+      "jerk": 7.520257472991943,
+      "joint_mae": 0.09089863182792701,
+      "window_size": 15,
+      "epoch": 48,
+      "val_loss": 0.19492948055267334
+    },
+    "W=30": {
+      "params_k": 1985.666,
+      "network_latency_ms": 1.819738076068461,
+      "network_latency_p95_ms": 1.8637549132108688,
+      "ik_latency_ms": 0.0407667038962245,
+      "ik_latency_p95_ms": 0.04226923920214176,
+      "latency_ms": 1.8605047799646854,
+      "latency_p95_ms": 1.9060241524130106,
+      "swivel_mae": 6.0311970710754395,
+      "elbow_error_mm": 12.909574381117805,
+      "jerk": 4.2867350578308105,
+      "joint_mae": 0.09542633716915525,
+      "window_size": 30,
+      "epoch": 24,
+      "val_loss": 0.194369837641716
+    }
+  }
+}

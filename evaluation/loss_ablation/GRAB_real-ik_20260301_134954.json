@@ -1,0 +1,49 @@
+{
+  "_metadata": {
+    "experiment": "loss_ablation",
+    "dataset": "GRAB",
+    "dataset_path": "/data0/wwb_data/ygx_data/data_ygx_pose+dof/GRAB_training_data_with_swivel.npz",
+    "ik_type": "real-ik",
+    "timestamp": "2026-03-01T14:02:12",
+    "num_frames": 80874,
+    "device": "cuda:0"
+  },
+  "results": {
+    "Baseline (swivel_only)": {
+      "params_k": 1985.666,
+      "latency_ms": 1.7874469012022018,
+      "latency_p95_ms": 1.8432538956403732,
+      "swivel_mae": 5.465806007385254,
+      "elbow_error_mm": 11.985703239755054,
+      "jerk": 2.038201332092285,
+      "joint_mae": 0.09070291784280382,
+      "window_size": 30,
+      "epoch": 6,
+      "val_loss": 0.16257496178150177
+    },
+    "Variant A (+elbow)": {
+      "params_k": 1985.666,
+      "latency_ms": 1.7463212106376886,
+      "latency_p95_ms": 1.7891624942421913,
+      "swivel_mae": 6.0279717445373535,
+      "elbow_error_mm": 12.85155913516132,
+      "jerk": 2.4602723121643066,
+      "joint_mae": 0.0950932076931986,
+      "window_size": 30,
+      "epoch": 6,
+      "val_loss": 0.16535413265228271
+    },
+    "Ours (full_loss)": {
+      "params_k": 1985.666,
+      "latency_ms": 1.768122959882021,
+      "latency_p95_ms": 1.820580242201686,
+      "swivel_mae": 5.818582534790039,
+      "elbow_error_mm": 12.558991183165464,
+      "jerk": 2.4415459632873535,
+      "joint_mae": 0.09373436642492804,
+      "window_size": 30,
+      "epoch": 6,
+      "val_loss": 0.1647765189409256
+    }
+  }
+}

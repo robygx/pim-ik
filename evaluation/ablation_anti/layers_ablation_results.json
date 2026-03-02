@@ -1,0 +1,61 @@
+{
+  "_metadata": {
+    "experiment": "layers_ablation",
+    "dataset": "GRAB",
+    "dataset_path": "/data0/wwb_data/ygx_data/data_ygx_pose+dof/GRAB_training_data_with_swivel.npz",
+    "ik_type": "real-ik",
+    "timestamp": "2026-03-03T02:52:48",
+    "num_frames": 49986,
+    "device": "cuda:0"
+  },
+  "results": {
+    "L=2": {
+      "params_k": 1109.122,
+      "network_latency_ms": 1.1314446488395333,
+      "network_latency_p95_ms": 1.1721780523657799,
+      "ik_latency_ms": 0.040972485207021236,
+      "ik_latency_p95_ms": 0.04227980971336365,
+      "latency_ms": 1.1724171340465546,
+      "latency_p95_ms": 1.2144578620791435,
+      "swivel_mae": 5.883979797363281,
+      "elbow_error_mm": 12.73522918261965,
+      "jerk": 6.371251583099365,
+      "joint_mae": 0.09493132219061129,
+      "window_size": 15,
+      "epoch": 29,
+      "val_loss": 0.19250069558620453
+    },
+    "L=4": {
+      "params_k": 1985.666,
+      "network_latency_ms": 2.468529215082526,
+      "network_latency_p95_ms": 2.555746678262949,
+      "ik_latency_ms": 0.04097254481166601,
+      "ik_latency_p95_ms": 0.04225722514092922,
+      "latency_ms": 2.509501759894192,
+      "latency_p95_ms": 2.598003903403878,
+      "swivel_mae": 5.641381740570068,
+      "elbow_error_mm": 12.397233631573789,
+      "jerk": 6.074061870574951,
+      "joint_mae": 0.09333502125435607,
+      "window_size": 15,
+      "epoch": 48,
+      "val_loss": 0.20068499445915222
+    },
+    "L=8": {
+      "params_k": 3738.754,
+      "network_latency_ms": 3.086400395259261,
+      "network_latency_p95_ms": 3.1595360953360796,
+      "ik_latency_ms": 0.040386720560491085,
+      "ik_latency_p95_ms": 0.04160003736615181,
+      "latency_ms": 3.126787115819752,
+      "latency_p95_ms": 3.2011361327022314,
+      "swivel_mae": 5.906527042388916,
+      "elbow_error_mm": 12.956834519362152,
+      "jerk": 2.9122958183288574,
+      "joint_mae": 0.09661655678345692,
+      "window_size": 15,
+      "epoch": 27,
+      "val_loss": 0.201080784201622
+    }
+  }
+}

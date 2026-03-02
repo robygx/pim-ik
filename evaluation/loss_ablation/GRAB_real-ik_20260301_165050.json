@@ -1,0 +1,100 @@
+{
+  "_metadata": {
+    "experiment": "loss_ablation",
+    "dataset": "GRAB",
+    "dataset_path": "/data0/wwb_data/ygx_data/data_ygx_pose+dof/GRAB_training_data_with_swivel.npz",
+    "ik_type": "real-ik",
+    "timestamp": "2026-03-01T17:19:55",
+    "num_frames": 80874,
+    "device": "cuda:0"
+  },
+  "results": {
+    "Baseline (swivel_only)": {
+      "params_k": 1985.666,
+      "latency_ms": 1.829054994508624,
+      "latency_p95_ms": 1.8820133060216904,
+      "swivel_mae": 5.465806007385254,
+      "elbow_error_mm": 11.985703239755054,
+      "jerk": 2.038201332092285,
+      "joint_mae": 0.09070291784280382,
+      "window_size": 30,
+      "epoch": 6,
+      "val_loss": 0.16257496178150177,
+      "correlation_analysis": {
+        "correlation": 0.9058459061000801,
+        "swivel_elbow_correlation": 0.9656447751841459,
+        "elbow_joint_correlation": 0.97828389127189,
+        "p_value": 0.0,
+        "peak_sync_ratio": 0.6613272311212814,
+        "max_lag_correlation": 0.9058459061000801,
+        "swivel_error_mean": 5.502565062607177,
+        "swivel_error_std": 5.63390307247543,
+        "elbow_error_mean": 12.053094204319583,
+        "elbow_error_std": 12.645922915358646,
+        "joint_error_mean": 0.09119049563792705,
+        "joint_error_std": 0.10213990933057489,
+        "elbow_diagnosis": "\u2713 swivel\u2192elbow \u8f6c\u6362\u6b63\u5e38 (\u9ad8\u76f8\u5173)",
+        "diagnosis": "\u9ad8\u76f8\u5173 - \u81c2\u89d2\u9884\u6d4b\u8bef\u5dee\u662f\u5bfc\u81f4\u5173\u8282\u89d2\u5ea6\u8bef\u5dee\u7684\u4e3b\u8981\u539f\u56e0",
+        "solution": "\u5efa\u8bae\u4f18\u5316\u6a21\u578b\u9884\u6d4b\u7cbe\u5ea6"
+      }
+    },
+    "Variant A (+elbow)": {
+      "params_k": 1985.666,
+      "latency_ms": 2.492941406555474,
+      "latency_p95_ms": 2.551792236045003,
+      "swivel_mae": 6.0279717445373535,
+      "elbow_error_mm": 12.85155913516132,
+      "jerk": 2.4602723121643066,
+      "joint_mae": 0.0950932076931986,
+      "window_size": 30,
+      "epoch": 6,
+      "val_loss": 0.16535413265228271,
+      "correlation_analysis": {
+        "correlation": 0.8562506261720343,
+        "swivel_elbow_correlation": 0.9463557816030287,
+        "elbow_joint_correlation": 0.9697180714072444,
+        "p_value": 0.0,
+        "peak_sync_ratio": 0.6712962962962963,
+        "max_lag_correlation": 0.8562506261720343,
+        "swivel_error_mean": 6.039385001964016,
+        "swivel_error_std": 6.309812741039148,
+        "elbow_error_mean": 12.85333702260735,
+        "elbow_error_std": 13.211197435642287,
+        "joint_error_mean": 0.0950255464632871,
+        "joint_error_std": 0.10343699700068787,
+        "elbow_diagnosis": "\u2713 swivel\u2192elbow \u8f6c\u6362\u6b63\u5e38 (\u9ad8\u76f8\u5173)",
+        "diagnosis": "\u9ad8\u76f8\u5173 - \u81c2\u89d2\u9884\u6d4b\u8bef\u5dee\u662f\u5bfc\u81f4\u5173\u8282\u89d2\u5ea6\u8bef\u5dee\u7684\u4e3b\u8981\u539f\u56e0",
+        "solution": "\u5efa\u8bae\u4f18\u5316\u6a21\u578b\u9884\u6d4b\u7cbe\u5ea6"
+      }
+    },
+    "Ours (full_loss)": {
+      "params_k": 1985.666,
+      "latency_ms": 1.8379360558465123,
+      "latency_p95_ms": 1.887773722410202,
+      "swivel_mae": 5.818582534790039,
+      "elbow_error_mm": 12.558991183165464,
+      "jerk": 2.4415459632873535,
+      "joint_mae": 0.09373436642492804,
+      "window_size": 30,
+      "epoch": 6,
+      "val_loss": 0.1647765189409256,
+      "correlation_analysis": {
+        "correlation": 0.8810001180055934,
+        "swivel_elbow_correlation": 0.955483318257402,
+        "elbow_joint_correlation": 0.9740462921831295,
+        "p_value": 0.0,
+        "peak_sync_ratio": 0.6252821670428894,
+        "max_lag_correlation": 0.8810001180055934,
+        "swivel_error_mean": 5.826816052734706,
+        "swivel_error_std": 6.092830366009402,
+        "elbow_error_mean": 12.564688122175204,
+        "elbow_error_std": 13.120266947026908,
+        "joint_error_mean": 0.09376927299043954,
+        "joint_error_std": 0.10387093662658037,
+        "elbow_diagnosis": "\u2713 swivel\u2192elbow \u8f6c\u6362\u6b63\u5e38 (\u9ad8\u76f8\u5173)",
+        "diagnosis": "\u9ad8\u76f8\u5173 - \u81c2\u89d2\u9884\u6d4b\u8bef\u5dee\u662f\u5bfc\u81f4\u5173\u8282\u89d2\u5ea6\u8bef\u5dee\u7684\u4e3b\u8981\u539f\u56e0",
+        "solution": "\u5efa\u8bae\u4f18\u5316\u6a21\u578b\u9884\u6d4b\u7cbe\u5ea6"
+      }
+    }
+  }
+}

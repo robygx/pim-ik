@@ -1,0 +1,38 @@
+{
+  "Baseline (swivel_only)": {
+    "params_k": 1985.666,
+    "latency_ms": 2.404622068628669,
+    "latency_p95_ms": 2.4738047271966934,
+    "swivel_mae": 7.284895420074463,
+    "elbow_error_mm": 15.025583694194102,
+    "jerk": 236.42703247070312,
+    "joint_mae": 5.0085278980647026,
+    "window_size": 30,
+    "epoch": 6,
+    "val_loss": 0.16257496178150177
+  },
+  "Variant A (+elbow)": {
+    "params_k": 1985.666,
+    "latency_ms": 1.7208203244954348,
+    "latency_p95_ms": 1.7669981811195612,
+    "swivel_mae": 7.426871299743652,
+    "elbow_error_mm": 15.288281886852552,
+    "jerk": 314.8045959472656,
+    "joint_mae": 5.0960939622841845,
+    "window_size": 30,
+    "epoch": 6,
+    "val_loss": 0.16535413265228271
+  },
+  "Ours (full_loss)": {
+    "params_k": 1985.666,
+    "latency_ms": 1.746595237404108,
+    "latency_p95_ms": 1.7949857283383608,
+    "swivel_mae": 7.3594841957092285,
+    "elbow_error_mm": 15.303600372931898,
+    "jerk": 332.30426025390625,
+    "joint_mae": 5.101200124310633,
+    "window_size": 30,
+    "epoch": 6,
+    "val_loss": 0.1647765189409256
+  }
+}

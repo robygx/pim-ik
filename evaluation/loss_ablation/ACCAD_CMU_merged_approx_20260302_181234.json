@@ -1,0 +1,61 @@
+{
+  "_metadata": {
+    "experiment": "loss_ablation",
+    "dataset": "ACCAD_CMU_merged",
+    "dataset_path": "/data0/wwb_data/ygx_data/data_ygx_pose+dof/ACCAD_CMU_merged_training_data_with_swivel.npz",
+    "ik_type": "approx",
+    "timestamp": "2026-03-02T18:12:57",
+    "num_frames": 986,
+    "device": "cuda:0"
+  },
+  "results": {
+    "swivel_only": {
+      "params_k": 1985.666,
+      "network_latency_ms": -1.0,
+      "network_latency_p95_ms": -1.0,
+      "ik_latency_ms": -1.0,
+      "ik_latency_p95_ms": -1.0,
+      "latency_ms": -1.0,
+      "latency_p95_ms": -1.0,
+      "swivel_mae": 6.004868984222412,
+      "elbow_error_mm": 9.998029417203194,
+      "jerk": 356.48504638671875,
+      "joint_mae": 3.3326764724010647,
+      "window_size": 15,
+      "epoch": 23,
+      "val_loss": 0.18313926458358765
+    },
+    "elbow_only": {
+      "params_k": 1985.666,
+      "network_latency_ms": -1.0,
+      "network_latency_p95_ms": -1.0,
+      "ik_latency_ms": -1.0,
+      "ik_latency_p95_ms": -1.0,
+      "latency_ms": -1.0,
+      "latency_p95_ms": -1.0,
+      "swivel_mae": 6.04903507232666,
+      "elbow_error_mm": 11.400618964210834,
+      "jerk": 232.3187255859375,
+      "joint_mae": 3.8002063214036115,
+      "window_size": 15,
+      "epoch": 29,
+      "val_loss": 0.016023848205804825
+    },
+    "full_loss": {
+      "params_k": 1985.666,
+      "network_latency_ms": -1.0,
+      "network_latency_p95_ms": -1.0,
+      "ik_latency_ms": -1.0,
+      "ik_latency_p95_ms": -1.0,
+      "latency_ms": -1.0,
+      "latency_p95_ms": -1.0,
+      "swivel_mae": 6.498929500579834,
+      "elbow_error_mm": 11.148336063922395,
+      "jerk": 386.0189208984375,
+      "joint_mae": 3.7161120213074645,
+      "window_size": 15,
+      "epoch": 45,
+      "val_loss": 0.20075565576553345
+    }
+  }
+}

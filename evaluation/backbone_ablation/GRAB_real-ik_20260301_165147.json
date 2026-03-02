@@ -1,0 +1,100 @@
+{
+  "_metadata": {
+    "experiment": "backbone_ablation",
+    "dataset": "GRAB",
+    "dataset_path": "/data0/wwb_data/ygx_data/data_ygx_pose+dof/GRAB_training_data_with_swivel.npz",
+    "ik_type": "real-ik",
+    "timestamp": "2026-03-01T17:19:01",
+    "num_frames": 80874,
+    "device": "cuda:0"
+  },
+  "results": {
+    "LSTM": {
+      "params_k": 2337.922,
+      "latency_ms": 1.260530587285757,
+      "latency_p95_ms": 1.2784178368747234,
+      "swivel_mae": 6.120075225830078,
+      "elbow_error_mm": 13.245345679250725,
+      "jerk": 1.844079852104187,
+      "joint_mae": 0.09898921597951178,
+      "window_size": 30,
+      "epoch": 6,
+      "val_loss": 0.1770492047071457,
+      "correlation_analysis": {
+        "correlation": 0.8907317388703357,
+        "swivel_elbow_correlation": 0.9591568433954076,
+        "elbow_joint_correlation": 0.975091440917873,
+        "p_value": 0.0,
+        "peak_sync_ratio": 0.6681715575620768,
+        "max_lag_correlation": 0.8907317388703357,
+        "swivel_error_mean": 6.139486299541511,
+        "swivel_error_std": 6.036601199881281,
+        "elbow_error_mean": 13.281080269067592,
+        "elbow_error_std": 13.385217629296603,
+        "joint_error_mean": 0.09926685797596901,
+        "joint_error_std": 0.107103371673398,
+        "elbow_diagnosis": "\u2713 swivel\u2192elbow \u8f6c\u6362\u6b63\u5e38 (\u9ad8\u76f8\u5173)",
+        "diagnosis": "\u9ad8\u76f8\u5173 - \u81c2\u89d2\u9884\u6d4b\u8bef\u5dee\u662f\u5bfc\u81f4\u5173\u8282\u89d2\u5ea6\u8bef\u5dee\u7684\u4e3b\u8981\u539f\u56e0",
+        "solution": "\u5efa\u8bae\u4f18\u5316\u6a21\u578b\u9884\u6d4b\u7cbe\u5ea6"
+      }
+    },
+    "Mamba": {
+      "params_k": 1985.666,
+      "latency_ms": 2.441796738654375,
+      "latency_p95_ms": 2.50976481474936,
+      "swivel_mae": 5.834755897521973,
+      "elbow_error_mm": 12.695778972993192,
+      "jerk": 2.519195079803467,
+      "joint_mae": 0.09531289725897672,
+      "window_size": 30,
+      "epoch": 6,
+      "val_loss": 0.16178128123283386,
+      "correlation_analysis": {
+        "correlation": 0.9094698156851214,
+        "swivel_elbow_correlation": 0.967436820522726,
+        "elbow_joint_correlation": 0.9790830595493367,
+        "p_value": 0.0,
+        "peak_sync_ratio": 0.6697038724373576,
+        "max_lag_correlation": 0.9094698156851214,
+        "swivel_error_mean": 5.826995180118676,
+        "swivel_error_std": 6.301174021927507,
+        "elbow_error_mean": 12.673450976728882,
+        "elbow_error_std": 13.873611126068566,
+        "joint_error_mean": 0.09514632768779888,
+        "joint_error_std": 0.10972787371350892,
+        "elbow_diagnosis": "\u2713 swivel\u2192elbow \u8f6c\u6362\u6b63\u5e38 (\u9ad8\u76f8\u5173)",
+        "diagnosis": "\u9ad8\u76f8\u5173 - \u81c2\u89d2\u9884\u6d4b\u8bef\u5dee\u662f\u5bfc\u81f4\u5173\u8282\u89d2\u5ea6\u8bef\u5dee\u7684\u4e3b\u8981\u539f\u56e0",
+        "solution": "\u5efa\u8bae\u4f18\u5316\u6a21\u578b\u9884\u6d4b\u7cbe\u5ea6"
+      }
+    },
+    "Transformer": {
+      "params_k": 3519.618,
+      "latency_ms": 1.2873213160783052,
+      "latency_p95_ms": 1.3191147241741419,
+      "swivel_mae": 5.306576251983643,
+      "elbow_error_mm": 11.521761657249893,
+      "jerk": 2.0001587867736816,
+      "joint_mae": 0.08636104634472026,
+      "window_size": 30,
+      "epoch": 6,
+      "val_loss": 0.1620512455701828,
+      "correlation_analysis": {
+        "correlation": 0.9040690678410743,
+        "swivel_elbow_correlation": 0.9653021235337942,
+        "elbow_joint_correlation": 0.9779133848504409,
+        "p_value": 0.0,
+        "peak_sync_ratio": 0.6556603773584906,
+        "max_lag_correlation": 0.9040690678410743,
+        "swivel_error_mean": 5.304337326317619,
+        "swivel_error_std": 5.547552116969315,
+        "elbow_error_mean": 11.508155809140145,
+        "elbow_error_std": 12.293993782927776,
+        "joint_error_mean": 0.08623003152290959,
+        "joint_error_std": 0.09791131771551756,
+        "elbow_diagnosis": "\u2713 swivel\u2192elbow \u8f6c\u6362\u6b63\u5e38 (\u9ad8\u76f8\u5173)",
+        "diagnosis": "\u9ad8\u76f8\u5173 - \u81c2\u89d2\u9884\u6d4b\u8bef\u5dee\u662f\u5bfc\u81f4\u5173\u8282\u89d2\u5ea6\u8bef\u5dee\u7684\u4e3b\u8981\u539f\u56e0",
+        "solution": "\u5efa\u8bae\u4f18\u5316\u6a21\u578b\u9884\u6d4b\u7cbe\u5ea6"
+      }
+    }
+  }
+}

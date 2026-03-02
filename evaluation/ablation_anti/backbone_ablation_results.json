@@ -1,0 +1,61 @@
+{
+  "_metadata": {
+    "experiment": "backbone_ablation",
+    "dataset": "GRAB",
+    "dataset_path": "/data0/wwb_data/ygx_data/data_ygx_pose+dof/GRAB_training_data_with_swivel.npz",
+    "ik_type": "real-ik",
+    "timestamp": "2026-03-03T02:51:30",
+    "num_frames": 49986,
+    "device": "cuda:0"
+  },
+  "results": {
+    "LSTM": {
+      "params_k": 2337.922,
+      "network_latency_ms": 1.4296315936371684,
+      "network_latency_p95_ms": 1.4606704469770193,
+      "ik_latency_ms": 0.06124021578580141,
+      "ik_latency_p95_ms": 0.06315549835562706,
+      "latency_ms": 1.4908718094229698,
+      "latency_p95_ms": 1.5238259453326464,
+      "swivel_mae": 5.564699172973633,
+      "elbow_error_mm": 12.29876897152308,
+      "jerk": 4.704812526702881,
+      "joint_mae": 0.09287080386601132,
+      "window_size": 15,
+      "epoch": 36,
+      "val_loss": 0.19043204188346863
+    },
+    "Mamba": {
+      "params_k": 1985.666,
+      "network_latency_ms": 2.6172912130132318,
+      "network_latency_p95_ms": 2.6929359417408705,
+      "ik_latency_ms": 0.061802804470062256,
+      "ik_latency_p95_ms": 0.06310790777206421,
+      "latency_ms": 2.679094017483294,
+      "latency_p95_ms": 2.7560438495129347,
+      "swivel_mae": 6.373820781707764,
+      "elbow_error_mm": 13.924477119212074,
+      "jerk": 5.185041904449463,
+      "joint_mae": 0.10374695307103314,
+      "window_size": 15,
+      "epoch": 47,
+      "val_loss": 0.20078617334365845
+    },
+    "Transformer": {
+      "params_k": 3519.618,
+      "network_latency_ms": 1.3474417496472597,
+      "network_latency_p95_ms": 1.3753651641309261,
+      "ik_latency_ms": 0.04254842642694712,
+      "ik_latency_p95_ms": 0.04379032179713249,
+      "latency_ms": 1.3899901760742068,
+      "latency_p95_ms": 1.4191554859280586,
+      "swivel_mae": 5.144813537597656,
+      "elbow_error_mm": 11.285766290604768,
+      "jerk": 4.045252323150635,
+      "joint_mae": 0.08492705874983075,
+      "window_size": 15,
+      "epoch": 29,
+      "val_loss": 0.18655864894390106
+    }
+  }
+}

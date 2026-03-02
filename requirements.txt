@@ -1,0 +1,23 @@
+# PyTorch
+torch>=2.0.0
+torchvision>=0.15.0
+
+# Scientific Computing
+numpy>=1.23.0
+scipy>=1.10.0
+
+# Robotics
+pinocchio>=2.9.0
+
+# Mamba
+mamba-ssm>=1.2.0
+causal-conv1d>=1.3.0
+
+# Visualization
+matplotlib>=3.5.0
+
+# Experiment Tracking
+wandb>=0.15.0
+
+# Utilities
+tqdm>=4.65.0
