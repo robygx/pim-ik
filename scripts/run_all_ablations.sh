@@ -36,7 +36,7 @@ ln -sf /data0/ygx_data/checkpoints ${PROJECT_DIR}/checkpoints
 echo "📁 Checkpoints 软链接: ${PROJECT_DIR}/checkpoints -> /data0/ygx_data/checkpoints"
 
 # 公共参数 (抗过拟合配置)
-COMMON_ARGS="--epochs 50 --batch_size 2056 --no_wandb --dropout 0.1 --train_stride 5 --t0 10 --t_mult 2 --backbone transformer --num_layers 4"
+COMMON_ARGS="--epochs 50 --batch_size 2056 --dropout 0.1 --train_stride 5 --t0 10 --t_mult 2 --backbone transformer --num_layers 4"
 
 # 定义实验函数
 run_experiment() {

@@ -268,6 +268,8 @@ def measure_inference_latency(
     window_size: int,
     device: str,
     sample_data: Dict = None,
+    ik_solver=None,
+    traditional_ik=None,
     warmup: int = 100,
     num_runs: int = 1000
 ) -> Dict:
@@ -289,6 +291,9 @@ def measure_inference_latency(
             - p_w: 腕部位置 (3,)
             - L_upper: 上臂长度
             - L_lower: 前臂长度
+            - q_init: 初始关节角度 (14,)，用于真实 IK (可选)
+        ik_solver: HierarchicalIKSolver 实例 (可选，用于真实 IK 测量)
+        traditional_ik: 传统 IK 求解器，用于初始化 (可选)
         warmup: 预热次数
         num_runs: 测试迭代次数
 
@@ -339,17 +344,48 @@ def measure_inference_latency(
         p_w = sample_data['p_w']  # (3,)
         L_upper = sample_data['L_upper']
         L_lower = sample_data['L_lower']
+        q_init = sample_data.get('q_init', None)  # 初始关节角度 (可选)
 
-        # IK 预热
-        for _ in range(warmup):
-            _ = target_gen.compute_target_elbow_position(pred_swivel_np, p_s, p_w, L_upper, L_lower)
+        if ik_solver is not None:
+            # === 真实 IK 求解 (包含 HierarchicalIKSolver.solve()) ===
+            # 准备初始关节角度
+            q_init_full = np.zeros(14, dtype=np.float32)
+            if q_init is not None:
+                q_init_full[:7] = q_init[:7]
 
-        # IK 计时
-        for _ in range(num_runs):
-            start = time.perf_counter()
-            _ = target_gen.compute_target_elbow_position(pred_swivel_np, p_s, p_w, L_upper, L_lower)
-            end = time.perf_counter()
-            ik_latencies.append((end - start) * 1000)  # 转换为毫秒
+            # IK 预热（完整流程）
+            for _ in range(warmup):
+                p_e_target = target_gen.compute_target_elbow_position(pred_swivel_np, p_s, p_w, L_upper, L_lower)
+                if traditional_ik is not None:
+                    q_trad, _ = traditional_ik.solve(T_target=T_ee_sample, q_init=q_init_full, max_iter=50, verbose=False)
+                    q_init_full[:7] = q_trad[:7]
+                _ = ik_solver.solve(T_ee_target=T_ee_sample, p_e_target=p_e_target, q_init=q_init_full, max_iter=50, verbose=False)
+
+            # IK 计时（完整流程）
+            for _ in range(num_runs):
+                start = time.perf_counter()
+                # 步骤 1: 计算目标肘部位置
+                p_e_target = target_gen.compute_target_elbow_position(pred_swivel_np, p_s, p_w, L_upper, L_lower)
+                # 步骤 2: 传统 IK 初始化 (如果可用)
+                if traditional_ik is not None:
+                    q_trad, _ = traditional_ik.solve(T_target=T_ee_sample, q_init=q_init_full, max_iter=50, verbose=False)
+                    q_init_full[:7] = q_trad[:7]
+                # 步骤 3: 分层 IK 求解
+                q_solution = ik_solver.solve(T_ee_target=T_ee_sample, p_e_target=p_e_target, q_init=q_init_full, max_iter=50, verbose=False)
+                end = time.perf_counter()
+                ik_latencies.append((end - start) * 1000)  # 转换为毫秒
+        else:
+            # === 近似方法 (仅计算肘部位置) ===
+            # IK 预热
+            for _ in range(warmup):
+                _ = target_gen.compute_target_elbow_position(pred_swivel_np, p_s, p_w, L_upper, L_lower)
+
+            # IK 计时
+            for _ in range(num_runs):
+                start = time.perf_counter()
+                _ = target_gen.compute_target_elbow_position(pred_swivel_np, p_s, p_w, L_upper, L_lower)
+                end = time.perf_counter()
+                ik_latencies.append((end - start) * 1000)  # 转换为毫秒
 
     ik_latency_mean = np.mean(ik_latencies) if has_ik_data else 0.0
     ik_latency_p95 = np.percentile(ik_latencies, 95) if has_ik_data else 0.0
@@ -1479,7 +1515,15 @@ def main():
                 'L_upper': data['L_upper'][0],
                 'L_lower': data['L_lower'][0],
             }
-            latency = measure_inference_latency(model, data['T_ee'][0], ws, device, sample_data)
+            # 添加初始关节角度（如果使用真实 IK）
+            if args.use_real_ik and data['gt_joints'] is not None:
+                sample_data['q_init'] = data['gt_joints'][0]  # (7,) 左臂关节角度
+
+            latency = measure_inference_latency(
+                model, data['T_ee'][0], ws, device, sample_data,
+                ik_solver=ik_solver if args.use_real_ik else None,
+                traditional_ik=traditional_ik if args.use_real_ik else None
+            )
             print(f"  Network: {latency['network_latency_ms']:.3f} ms (p95: {latency['network_latency_p95_ms']:.3f} ms)")
             print(f"  IK:      {latency['ik_latency_ms']:.3f} ms (p95: {latency['ik_latency_p95_ms']:.3f} ms)")
             print(f"  Total:   {latency['total_latency_ms']:.3f} ms (p95: {latency['p95']:.3f} ms)")
