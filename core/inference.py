@@ -42,6 +42,7 @@ except ImportError as e:
 
 # 导入自定义模块
 from pim_ik_net import PiM_IK_Net
+from g1_analytical_ik import AnalyticalIKSolver, G1KinematicsConfig
 
 
 # ============================================================================
@@ -399,6 +400,7 @@ class InferenceResult:
     solve_times: List[float]      # 求解时间
     iterations: List[int]         # 迭代次数
     success_rate: float           # 成功率
+    ik_solver_type: str = 'hierarchical'  # IK 求解器类型
 
 
 class InferencePipeline:
@@ -407,19 +409,24 @@ class InferencePipeline:
 
     流程:
         1. 加载训练好的神经网络模型
-        2. 加载 Pinocchio 机器人模型
+        2. 加载 IK 求解器 (支持数值IK和解析IK)
         3. 从验证集抽取连续轨迹
         4. 神经网络推理 → 预测臂角
-        5. 臂角 → 肘部目标位置
-        6. 分层 IK 求解 → 关节角度
+        5. 臂角 → 肘部目标位置 (仅数值IK需要)
+        6. IK 求解 → 关节角度
         7. 精度验证与结果输出
+
+    IK 求解器选项:
+        - 'hierarchical': 数值IK (HierarchicalIKSolver), ~1ms, 精度高
+        - 'analytical': 解析IK (AnalyticalIKSolver), ~0.01ms, 速度快
     """
 
     def __init__(
         self,
         model_checkpoint: str,
         pinocchio_model: str,
-        device: str = 'cuda:0'
+        device: str = 'cuda:0',
+        ik_solver_type: str = 'hierarchical'
     ):
         """
         初始化推理管线
@@ -428,8 +435,10 @@ class InferencePipeline:
             model_checkpoint: PyTorch 模型 checkpoint 路径
             pinocchio_model: Pinocchio 模型缓存路径
             device: 计算设备
+            ik_solver_type: IK 求解器类型 ('hierarchical' 或 'analytical')
         """
         self.device = device
+        self.ik_solver_type = ik_solver_type
 
         print("=" * 60)
         print("PiM-IK Inference Pipeline Initialization")
@@ -441,13 +450,26 @@ class InferencePipeline:
         self.nn_model = self._load_nn_model(model_checkpoint)
         print(f"  ✓ Model loaded: PiM_IK_Net (d_model=256, num_layers=4)")
 
-        # 加载 Pinocchio 模型
-        print(f"\n[2/3] Loading Pinocchio Robot Model...")
+        # 加载 IK 求解器
+        print(f"\n[2/3] Loading IK Solver...")
+        print(f"  Type: {ik_solver_type}")
         print(f"  Model: {pinocchio_model}")
-        self.ik_solver = HierarchicalIKSolver(pinocchio_model)
-        print(f"  ✓ Robot loaded: G1 Left Arm (7-DOF)")
 
-        # 初始化目标生成器
+        if ik_solver_type == 'analytical':
+            if PINOCCHIO_AVAILABLE:
+                # 解析IK也需要Pinocchio用于FK验证（可选）
+                self.ik_solver = AnalyticalIKSolver(pinocchio_model)
+                print(f"  ✓ Analytical IK loaded: ~0.01ms/solve")
+            else:
+                self.ik_solver = AnalyticalIKSolver(pinocchio_model)
+                print(f"  ✓ Analytical IK loaded (no FK validation)")
+        else:
+            if not PINOCCHIO_AVAILABLE:
+                raise ImportError("HierarchicalIKSolver 需要 pinocchio，请安装: pip install pinocchio")
+            self.ik_solver = HierarchicalIKSolver(pinocchio_model)
+            print(f"  ✓ Hierarchical IK loaded: ~1ms/solve")
+
+        # 初始化目标生成器 (仅数值IK需要)
         print(f"\n[3/3] Initializing Target Generator...")
         self.target_gen = TargetGenerator()
         print(f"  ✓ Ready")
@@ -534,7 +556,8 @@ class InferencePipeline:
         self,
         trajectory_data: Dict,
         verbose: bool = True,
-        use_gt_as_init: bool = False  # 是否用 GT 作为初始猜测
+        use_gt_as_init: bool = False,  # 是否用 GT 作为初始猜测
+        ik_solver_type: Optional[str] = None  # 覆盖默认IK求解器类型
     ) -> InferenceResult:
         """
         运行端到端推理
@@ -582,6 +605,9 @@ class InferencePipeline:
 
         q_init = None  # Warm-start (设为 GT 值可测试 IK 能力)
 
+        # 确定使用的 IK 求解器类型
+        current_ik_type = ik_solver_type if ik_solver_type else self.ik_solver_type
+
         total_ik_time = 0
 
         for i in range(T):
@@ -603,18 +629,27 @@ class InferencePipeline:
                 # 第一帧使用 GT 初始化，提高成功率
                 q_init = gt_joint.copy()
 
-            # 生成目标肘部位置
-            p_e_target = self.target_gen.compute_target_elbow_position(
-                pred_swivel[i], p_s, p_w, L_upper, L_lower
-            )
-
-            # IK 求解
-            q_sol, info = self.ik_solver.solve(
-                T_ee_target=T_ee_target,
-                p_e_target=p_e_target,
-                q_init=q_init,
-                verbose=False
-            )
+            # IK 求解 (根据求解器类型选择不同接口)
+            if current_ik_type == 'analytical':
+                # 解析IK: 直接使用 swivel_angle 和 p_shoulder
+                q_sol, info = self.ik_solver.solve(
+                    T_ee_target=T_ee_target,
+                    swivel_angle=pred_swivel[i],
+                    p_shoulder=p_s,
+                    q_init=q_init,
+                    verbose=False
+                )
+            else:
+                # 数值IK: 需要先生成目标肘部位置
+                p_e_target = self.target_gen.compute_target_elbow_position(
+                    pred_swivel[i], p_s, p_w, L_upper, L_lower
+                )
+                q_sol, info = self.ik_solver.solve(
+                    T_ee_target=T_ee_target,
+                    p_e_target=p_e_target,
+                    q_init=q_init,
+                    verbose=False
+                )
 
             # 记录结果
             q_solved.append(q_sol)
@@ -665,7 +700,8 @@ class InferencePipeline:
             joint_maes=joint_maes,
             solve_times=solve_times,
             iterations=iterations,
-            success_rate=success_rate
+            success_rate=success_rate,
+            ik_solver_type=current_ik_type
         )
 
         return result
@@ -707,6 +743,12 @@ class InferencePipeline:
         total_time = np.sum(result.solve_times)
         avg_time = total_time / T
 
+        # IK 求解器类型显示
+        ik_solver_display = {
+            'hierarchical': 'Hierarchical (Numerical)',
+            'analytical': 'Analytical (Closed-Form)'
+        }.get(result.ik_solver_type, result.ik_solver_type)
+
         # ============================================================
         # 打印科技感面板
         # ============================================================
@@ -716,6 +758,7 @@ class InferencePipeline:
         print("╠" + "═" * 58 + "╣")
         print(f"║  Model: {model_path[-40:]:40s} ║")
         print(f"║  Device: CUDA:0 (NVIDIA H20)                             ║")
+        print(f"║  IK Solver: {ik_solver_display:40s} ║")
         print(f"║  Trajectory: {T} frames (Validation Set)                 ║")
         print("╠" + "═" * 58 + "╣")
         print("║  Inference Time:                                         ║")
@@ -780,6 +823,9 @@ def main():
                         help='Compute device')
     parser.add_argument('--verbose', action='store_true',
                         help='Print detailed progress')
+    parser.add_argument('--ik-solver', type=str, default='hierarchical',
+                        choices=['hierarchical', 'analytical'],
+                        help='IK solver type: hierarchical (numerical, ~1ms) or analytical (closed-form, ~0.01ms)')
 
     args = parser.parse_args()
 
@@ -815,7 +861,8 @@ def main():
     pipeline = InferencePipeline(
         model_checkpoint=args.checkpoint,
         pinocchio_model=args.pinocchio,
-        device=args.device
+        device=args.device,
+        ik_solver_type=args.ik_solver
     )
 
     # ============================================================
@@ -832,7 +879,8 @@ def main():
     # ============================================================
     result = pipeline.run_inference(
         trajectory_data=trajectory_data,
-        verbose=args.verbose
+        verbose=args.verbose,
+        ik_solver_type=args.ik_solver
     )
 
     # ============================================================

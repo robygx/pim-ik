@@ -43,6 +43,45 @@ if os.path.exists(conda_env_lib):
     os.environ['LD_LIBRARY_PATH'] = conda_env_lib + ':' + os.environ.get('LD_LIBRARY_PATH', '')
 
 import argparse
+
+# 先创建 ArgumentParser 避免导入干扰
+parser = argparse.ArgumentParser(description='PiM-IK 综合评估 (遵循全局评估标准)', allow_abbrev=False)
+parser.add_argument('--data-path', type=str, dest='data_path',
+                    default='/data0/wwb_data/ygx_data/data_ygx_pose+dof/GRAB_training_data_with_swivel.npz',
+                    help='数据集路径 (默认: GRAB)')
+parser.add_argument('--checkpoint-dir', type=str, dest='checkpoint_dir',
+                    default='/home/ygx/ygx_hl_ik_v2/checkpoints/ablation_anti',
+                    help='检查点目录 (默认: checkpoints/ablation_anti)')
+parser.add_argument('--experiment', type=str, required=True,
+                    choices=['loss_ablation', 'window_size_ablation', 'backbone_ablation', 'layers_ablation'],
+                    help='实验类型')
+parser.add_argument('--num-frames', type=int, dest='num_frames', default=None,
+                    help='评估帧数 (None=全部验证集)')
+parser.add_argument('--device', type=str, default='cuda:0',
+                    help='计算设备')
+parser.add_argument('--output', type=str,
+                    default=None,
+                    help='结果输出路径 (默认: evaluation_results_{experiment}.json)')
+parser.add_argument('--no_latency', action='store_true',
+                    help='跳过延迟测试（加快评估）')
+parser.add_argument('--use-real-ik', action='store_true',
+                    help='使用真实 IK 求解器计算 Joint MAE (较慢但更精确)')
+parser.add_argument('--ik-solver', type=str, default='hierarchical',
+                    choices=['hierarchical', 'analytical'],
+                    help='IK 求解器类型 (hierarchical=数值IK~1ms, analytical=解析IK~0.01ms)')
+parser.add_argument('--compare-ik', action='store_true',
+                    help='启用双IK对比模式：同时用解析IK和数值IK求解，对比性能')
+parser.add_argument('--ik-sample-ratio', type=float, default=0.1,
+                    help='双IK对比采样比例 (默认: 0.1 = 10%%，减少计算量)')
+parser.add_argument('--analyze-correlation', action='store_true',
+                    help='分析臂角误差与关节角度误差的时间序列关联性')
+parser.add_argument('--sample-ratio', type=float, default=0.1,
+                    help='关联分析采样比例 (默认: 0.1 = 10%%)')
+parser.add_argument('--random-sample', action='store_true', dest='random_sample',
+                    help='随机采样验证集（默认：顺序采样）')
+parser.add_argument('--seed', type=int, default=None,
+                    help='随机种子（用于复现结果）')
+
 import numpy as np
 import torch
 import torch.nn as nn
@@ -73,6 +112,15 @@ from core.pim_ik_net import PiM_IK_Net
 REAL_IK_AVAILABLE = False
 HierarchicalIKSolver = None
 G1_29_ArmIK = None
+
+# 解析 IK 求解器 (本项目的)
+ANALYTICAL_IK_AVAILABLE = False
+try:
+    from core.g1_analytical_ik import AnalyticalIKSolver
+    ANALYTICAL_IK_AVAILABLE = True
+    print("[Info] 解析 IK 求解器可用 (G1AnalyticalIKSolver)")
+except ImportError as e:
+    print(f"[Warning] 无法导入解析 IK 求解器: {e}")
 
 try:
     # 修复 GLIBC 版本问题：设置 LD_LIBRARY_PATH 优先使用 conda 环境的 libstdc++
@@ -269,6 +317,7 @@ def measure_inference_latency(
     device: str,
     sample_data: Dict = None,
     ik_solver=None,
+    ik_solver_type: str = 'hierarchical',
     traditional_ik=None,
     warmup: int = 100,
     num_runs: int = 1000
@@ -292,7 +341,8 @@ def measure_inference_latency(
             - L_upper: 上臂长度
             - L_lower: 前臂长度
             - q_init: 初始关节角度 (14,)，用于真实 IK (可选)
-        ik_solver: HierarchicalIKSolver 实例 (可选，用于真实 IK 测量)
+        ik_solver: IK 求解器实例 (HierarchicalIKSolver 或 AnalyticalIKSolver)
+        ik_solver_type: IK 求解器类型 ('hierarchical' 或 'analytical')
         traditional_ik: 传统 IK 求解器，用于初始化 (可选)
         warmup: 预热次数
         num_runs: 测试迭代次数
@@ -347,33 +397,58 @@ def measure_inference_latency(
         q_init = sample_data.get('q_init', None)  # 初始关节角度 (可选)
 
         if ik_solver is not None:
-            # === 真实 IK 求解 (包含 HierarchicalIKSolver.solve()) ===
-            # 准备初始关节角度
-            q_init_full = np.zeros(14, dtype=np.float32)
-            if q_init is not None:
-                q_init_full[:7] = q_init[:7]
+            if ik_solver_type == 'analytical':
+                # === 解析 IK 求解 (直接使用 swivel_angle 和 p_shoulder) ===
+                # IK 预热
+                for _ in range(warmup):
+                    _ = ik_solver.solve(
+                        T_ee_target=T_ee_sample,
+                        swivel_angle=pred_swivel_np,
+                        p_shoulder=p_s,
+                        q_init=q_init,
+                        verbose=False
+                    )
 
-            # IK 预热（完整流程）
-            for _ in range(warmup):
-                p_e_target = target_gen.compute_target_elbow_position(pred_swivel_np, p_s, p_w, L_upper, L_lower)
-                if traditional_ik is not None:
-                    q_trad, _ = traditional_ik.solve(T_target=T_ee_sample, q_init=q_init_full, max_iter=50, verbose=False)
-                    q_init_full[:7] = q_trad[:7]
-                _ = ik_solver.solve(T_ee_target=T_ee_sample, p_e_target=p_e_target, q_init=q_init_full, max_iter=50, verbose=False)
+                # IK 计时
+                for _ in range(num_runs):
+                    start = time.perf_counter()
+                    _ = ik_solver.solve(
+                        T_ee_target=T_ee_sample,
+                        swivel_angle=pred_swivel_np,
+                        p_shoulder=p_s,
+                        q_init=q_init,
+                        verbose=False
+                    )
+                    end = time.perf_counter()
+                    ik_latencies.append((end - start) * 1000)  # 转换为毫秒
+            else:
+                # === 数值 IK 求解 (HierarchicalIKSolver) ===
+                # 准备初始关节角度
+                q_init_full = np.zeros(14, dtype=np.float32)
+                if q_init is not None:
+                    q_init_full[:7] = q_init[:7]
 
-            # IK 计时（完整流程）
-            for _ in range(num_runs):
-                start = time.perf_counter()
-                # 步骤 1: 计算目标肘部位置
-                p_e_target = target_gen.compute_target_elbow_position(pred_swivel_np, p_s, p_w, L_upper, L_lower)
-                # 步骤 2: 传统 IK 初始化 (如果可用)
-                if traditional_ik is not None:
-                    q_trad, _ = traditional_ik.solve(T_target=T_ee_sample, q_init=q_init_full, max_iter=50, verbose=False)
-                    q_init_full[:7] = q_trad[:7]
-                # 步骤 3: 分层 IK 求解
-                q_solution = ik_solver.solve(T_ee_target=T_ee_sample, p_e_target=p_e_target, q_init=q_init_full, max_iter=50, verbose=False)
-                end = time.perf_counter()
-                ik_latencies.append((end - start) * 1000)  # 转换为毫秒
+                # IK 预热（完整流程）
+                for _ in range(warmup):
+                    p_e_target = target_gen.compute_target_elbow_position(pred_swivel_np, p_s, p_w, L_upper, L_lower)
+                    if traditional_ik is not None:
+                        q_trad, _ = traditional_ik.solve(T_target=T_ee_sample, q_init=q_init_full, max_iter=50, verbose=False)
+                        q_init_full[:7] = q_trad[:7]
+                    _ = ik_solver.solve(T_ee_target=T_ee_sample, p_e_target=p_e_target, q_init=q_init_full, max_iter=50, verbose=False)
+
+                # IK 计时（完整流程）
+                for _ in range(num_runs):
+                    start = time.perf_counter()
+                    # 步骤 1: 计算目标肘部位置
+                    p_e_target = target_gen.compute_target_elbow_position(pred_swivel_np, p_s, p_w, L_upper, L_lower)
+                    # 步骤 2: 传统 IK 初始化 (如果可用)
+                    if traditional_ik is not None:
+                        q_trad, _ = traditional_ik.solve(T_target=T_ee_sample, q_init=q_init_full, max_iter=50, verbose=False)
+                        q_init_full[:7] = q_trad[:7]
+                    # 步骤 3: 分层 IK 求解
+                    q_solution = ik_solver.solve(T_ee_target=T_ee_sample, p_e_target=p_e_target, q_init=q_init_full, max_iter=50, verbose=False)
+                    end = time.perf_counter()
+                    ik_latencies.append((end - start) * 1000)  # 转换为毫秒
         else:
             # === 近似方法 (仅计算肘部位置) ===
             # IK 预热
@@ -1263,40 +1338,219 @@ def compute_joint_mae_with_ik(
 
 
 # ============================================================================
+# 双IK对比评测函数
+# ============================================================================
+
+def compare_ik_solvers(
+    T_ee: np.ndarray,
+    pred_swivel: np.ndarray,
+    p_s: np.ndarray,
+    p_w: np.ndarray,
+    L_upper: np.ndarray,
+    L_lower: np.ndarray,
+    gt_joints: np.ndarray,
+    analytical_ik,
+    hierarchical_ik,
+    traditional_ik,
+    sample_ratio: float = 0.1,
+    is_valid: np.ndarray = None,
+    verbose: bool = True
+) -> Dict:
+    """
+    同时用解析IK和数值IK求解，全面对比结果
+
+    Args:
+        T_ee: (N, 4, 4) 目标末端位姿
+        pred_swivel: (N, 2) 预测的臂角
+        p_s: (N, 3) 肩部位置
+        p_w: (N, 3) 腕部位置
+        L_upper: (N,) 上臂长度
+        L_lower: (N,) 前臂长度
+        gt_joints: (N, 7) GT关节角度
+        analytical_ik: AnalyticalIKSolver 实例
+        hierarchical_ik: HierarchicalIKSolver 实例
+        traditional_ik: 传统IK求解器（用于初始化）
+        sample_ratio: 采样比例（默认0.1=10%）
+        is_valid: (N,) 有效性掩码
+        verbose: 是否打印详细信息
+
+    Returns:
+        对比结果字典，包含:
+        - analytical: 解析IK的统计指标
+        - hierarchical: 数值IK的统计指标
+        - comparison: 两者对比指标
+    """
+    N = len(T_ee)
+    sample_size = max(1, int(N * sample_ratio))
+
+    # 采样索引
+    if sample_ratio < 1.0:
+        indices = np.random.choice(N, size=sample_size, replace=False)
+        indices = np.sort(indices)
+    else:
+        indices = np.arange(N)
+
+    if verbose:
+        print(f"\n[双IK对比] 总帧数: {N}, 采样帧数: {sample_size} ({sample_ratio*100:.1f}%)")
+
+    target_gen = TargetGenerator()
+
+    # 存储结果
+    analytical_times = []
+    hierarchical_times = []
+    analytical_joint_errors_vs_gt = []
+    hierarchical_joint_errors_vs_gt = []
+    joint_diffs = []
+    analytical_converged = 0
+    hierarchical_converged = 0
+
+    # 逐关节误差统计 (7个关节)
+    analytical_joint_errors_per_joint = [[] for _ in range(7)]
+    hierarchical_joint_errors_per_joint = [[] for _ in range(7)]
+    joint_diffs_per_joint = [[] for _ in range(7)]
+
+    # 准备初始值（使用传统IK或GT）
+    use_traditional_init = traditional_ik is not None and SCIPY_AVAILABLE
+
+    for idx in indices:
+        # 跳过无效帧
+        if is_valid is not None and is_valid[idx] < 0.5:
+            continue
+
+        # 计算目标肘部位置（数值IK需要）
+        p_e_pred = target_gen.compute_target_elbow_position(
+            pred_swivel[idx], p_s[idx], p_w[idx], L_upper[idx], L_lower[idx]
+        )
+
+        # 准备初始关节角度
+        q_init_full = np.zeros(14, dtype=np.float32)
+        if use_traditional_init and gt_joints is not None:
+            q_init_14d = np.zeros(14, dtype=np.float32)
+            q_init_14d[:7] = gt_joints[idx]
+            q_trad, _ = traditional_ik.solve(
+                T_target=T_ee[idx], q_init=q_init_14d, max_iter=50, verbose=False
+            )
+            q_init_full[:7] = q_trad[:7]
+        elif gt_joints is not None:
+            q_init_full[:7] = gt_joints[idx]
+
+        # ===== 解析IK求解 =====
+        t_start = time.perf_counter()
+        q_analytical, info_a = analytical_ik.solve(
+            T_ee_target=T_ee[idx],
+            swivel_angle=pred_swivel[idx],
+            p_shoulder=p_s[idx],
+            q_init=q_init_full[:7] if q_init_full is not None else None,
+            verbose=False
+        )
+        analytical_time = (time.perf_counter() - t_start) * 1000
+        analytical_times.append(analytical_time)
+
+        # ===== 数值IK求解 =====
+        t_start = time.perf_counter()
+        q_hierarchical, info_h = hierarchical_ik.solve(
+            T_ee_target=T_ee[idx],
+            p_e_target=p_e_pred,
+            q_init=q_init_full,
+            max_iter=50,
+            verbose=False
+        )
+        hierarchical_time = (time.perf_counter() - t_start) * 1000
+        hierarchical_times.append(hierarchical_time)
+
+        # ===== 计算与GT的误差 =====
+        if gt_joints is not None:
+            gt = gt_joints[idx]
+
+            # 处理角度周期性
+            analytical_err = np.degrees(np.abs(np.arctan2(np.sin(q_analytical[:7] - gt),
+                                                         np.cos(q_analytical[:7] - gt))))
+            hierarchical_err = np.degrees(np.abs(np.arctan2(np.sin(q_hierarchical[:7] - gt),
+                                                             np.cos(q_hierarchical[:7] - gt))))
+
+            analytical_joint_errors_vs_gt.append(analytical_err.mean())
+            hierarchical_joint_errors_vs_gt.append(hierarchical_err.mean())
+
+            # 逐关节误差
+            for j in range(7):
+                analytical_joint_errors_per_joint[j].append(analytical_err[j])
+                hierarchical_joint_errors_per_joint[j].append(hierarchical_err[j])
+
+            # 两者之间的差异
+            joint_diff = np.degrees(np.abs(np.arctan2(np.sin(q_analytical[:7] - q_hierarchical[:7]),
+                                                       np.cos(q_analytical[:7] - q_hierarchical[:7]))))
+            joint_diffs.append(joint_diff.mean())
+            for j in range(7):
+                joint_diffs_per_joint[j].append(joint_diff[j])
+
+        # 收敛统计
+        if info_a.get('converged', True):
+            analytical_converged += 1
+        if info_h.get('converged', False):
+            hierarchical_converged += 1
+
+    # 转换为numpy数组
+    analytical_times = np.array(analytical_times)
+    hierarchical_times = np.array(hierarchical_times)
+    analytical_joint_errors_vs_gt = np.array(analytical_joint_errors_vs_gt)
+    hierarchical_joint_errors_vs_gt = np.array(hierarchical_joint_errors_vs_gt)
+    joint_diffs = np.array(joint_diffs)
+
+    total_compared = len(analytical_times)
+
+    # 计算统计指标
+    analytical_joint_mae_per_joint = [np.mean(arr) if arr else 0 for arr in analytical_joint_errors_per_joint]
+    hierarchical_joint_mae_per_joint = [np.mean(arr) if arr else 0 for arr in hierarchical_joint_errors_per_joint]
+    joint_diff_per_joint = [np.mean(arr) if arr else 0 for arr in joint_diffs_per_joint]
+
+    result = {
+        'analytical': {
+            'ik_latency_ms': float(analytical_times.mean()),
+            'ik_latency_p95_ms': float(np.percentile(analytical_times, 95)),
+            'joint_mae_vs_gt': float(analytical_joint_errors_vs_gt.mean()) if len(analytical_joint_errors_vs_gt) > 0 else 0.0,
+            'max_joint_error': float(analytical_joint_errors_vs_gt.max()) if len(analytical_joint_errors_vs_gt) > 0 else 0.0,
+            'success_rate': float(analytical_converged / total_compared) if total_compared > 0 else 0.0,
+            'joint_mae_per_joint': analytical_joint_mae_per_joint,
+        },
+        'hierarchical': {
+            'ik_latency_ms': float(hierarchical_times.mean()),
+            'ik_latency_p95_ms': float(np.percentile(hierarchical_times, 95)),
+            'joint_mae_vs_gt': float(hierarchical_joint_errors_vs_gt.mean()) if len(hierarchical_joint_errors_vs_gt) > 0 else 0.0,
+            'max_joint_error': float(hierarchical_joint_errors_vs_gt.max()) if len(hierarchical_joint_errors_vs_gt) > 0 else 0.0,
+            'success_rate': float(hierarchical_converged / total_compared) if total_compared > 0 else 0.0,
+            'avg_iterations': float(info_h.get('iterations', 0)) if 'info_h' in locals() else 0.0,
+            'joint_mae_per_joint': hierarchical_joint_mae_per_joint,
+        },
+        'comparison': {
+            'ik_latency_speedup': float(hierarchical_times.mean() / analytical_times.mean()) if analytical_times.mean() > 0 else 0.0,
+            'joint_mae_diff': float(joint_diffs.mean()) if len(joint_diffs) > 0 else 0.0,
+            'max_joint_diff': float(joint_diffs.max()) if len(joint_diffs) > 0 else 0.0,
+            'joint_mae_diff_per_joint': joint_diff_per_joint,
+            'success_rate_diff': float((analytical_converged - hierarchical_converged) / total_compared) if total_compared > 0 else 0.0,
+        },
+        'num_frames_compared': total_compared
+    }
+
+    if verbose:
+        print(f"\n[双IK对比] 对比完成 ({total_compared} 帧)")
+        print(f"  解析IK:  耗时={result['analytical']['ik_latency_ms']:.3f}ms, "
+              f"Joint MAE={result['analytical']['joint_mae_vs_gt']:.2f}°, "
+              f"成功率={result['analytical']['success_rate']*100:.1f}%")
+        print(f"  数值IK:  耗时={result['hierarchical']['ik_latency_ms']:.3f}ms, "
+              f"Joint MAE={result['hierarchical']['joint_mae_vs_gt']:.2f}°, "
+              f"成功率={result['hierarchical']['success_rate']*100:.1f}%")
+        print(f"  加速比:  {result['comparison']['ik_latency_speedup']:.1f}x")
+        print(f"  差异:    Joint MAE差异={result['comparison']['joint_mae_diff']:.2f}°")
+
+    return result
+
+
+# ============================================================================
 # 主函数
 # ============================================================================
 
 def main():
-    parser = argparse.ArgumentParser(description='PiM-IK 综合评估 (遵循全局评估标准)')
-    parser.add_argument('--data_path', type=str,
-                        default='/data0/wwb_data/ygx_data/data_ygx_pose+dof/GRAB_training_data_with_swivel.npz',
-                        help='数据集路径 (默认: GRAB)')
-    parser.add_argument('--checkpoint_dir', type=str,
-                        default='/home/ygx/ygx_hl_ik_v2/checkpoints/ablation_anti',
-                        help='检查点目录 (默认: checkpoints/ablation_anti)')
-    parser.add_argument('--experiment', type=str, required=True,
-                        choices=['loss_ablation', 'window_size_ablation', 'backbone_ablation', 'layers_ablation'],
-                        help='实验类型')
-    parser.add_argument('--num_frames', type=int, default=None,
-                        help='评估帧数 (None=全部验证集)')
-    parser.add_argument('--device', type=str, default='cuda:0',
-                        help='计算设备')
-    parser.add_argument('--output', type=str,
-                        default=None,  # 默认根据实验类型自动生成
-                        help='结果输出路径 (默认: evaluation_results_{experiment}.json)')
-    parser.add_argument('--no_latency', action='store_true',
-                        help='跳过延迟测试（加快评估）')
-    parser.add_argument('--use-real-ik', action='store_true',
-                        help='使用真实 IK 求解器计算 Joint MAE (较慢但更精确)')
-    parser.add_argument('--analyze-correlation', action='store_true',
-                        help='分析臂角误差与关节角度误差的时间序列关联性')
-    parser.add_argument('--sample-ratio', type=float, default=0.1,
-                        help='关联分析采样比例 (默认: 0.1 = 10%%)')
-    parser.add_argument('--random_sample', action='store_true',
-                        help='随机采样验证集（默认：顺序采样）')
-    parser.add_argument('--seed', type=int, default=None,
-                        help='随机种子（用于复现结果）')
-
+    # 参数已在文件顶部定义，这里直接解析
     args = parser.parse_args()
 
     # 自动生成输出文件名 (新格式: evaluation/{experiment}/{dataset}_{ik_type}_{timestamp}.json)
@@ -1317,11 +1571,137 @@ def main():
     print(f"[Experiment] {args.experiment}")
     print(f"[Output] {args.output}")
 
-    # 初始化真实 IK 求解器（如果需要）
+    # 初始化 IK 求解器（如果需要）
     ik_solver = None
+    analytical_ik_solver = None  # 用于对比评测
+    hierarchical_ik_solver = None  # 用于对比评测
     traditional_ik = None  # 传统 IK 求解器，用于初始化保证解的一致性
 
-    if args.use_real_ik:
+    # 双IK对比模式：需要同时初始化两种IK求解器
+    if args.compare_ik:
+        print("[IK] 双IK对比模式：初始化两种IK求解器...")
+        args.use_real_ik = True  # 对比模式需要真实IK
+
+        # 1. 初始化解析IK
+        if ANALYTICAL_IK_AVAILABLE:
+            try:
+                analytical_ik_solver = AnalyticalIKSolver(model_path='')
+                print("[IK] ✓ AnalyticalIKSolver 初始化成功")
+            except Exception as e:
+                print(f"[IK] ✗ AnalyticalIKSolver 初始化失败: {e}")
+                analytical_ik_solver = None
+        else:
+            print("[IK] ✗ AnalyticalIKSolver 不可用")
+
+        # 2. 初始化数值IK (HierarchicalIKSolver)
+        if REAL_IK_AVAILABLE:
+            try:
+                # ... (HierarchicalIKSolver 初始化代码，与下面相同)
+                cache_path = '/home/ygx/hl_ik_xr_tele/teleop/robot_control/g1_29_model_cache.pkl'
+
+                if os.path.exists(cache_path):
+                    import pickle
+                    import pinocchio as pin
+
+                    with open(cache_path, 'rb') as f:
+                        cache_data = pickle.load(f)
+
+                    robot = pin.RobotWrapper()
+                    robot.model = cache_data["robot_model"]
+                    robot.data = robot.model.createData()
+
+                    joints_to_lock = [
+                        "right_hip_yaw_joint", "right_hip_roll_joint", "right_hip_pitch_joint",
+                        "right_knee_joint", "right_ankle_pitch_joint", "right_ankle_roll_joint",
+                        "left_hip_yaw_joint", "left_hip_roll_joint", "left_hip_pitch_joint",
+                        "left_knee_joint", "left_ankle_pitch_joint", "left_ankle_roll_joint",
+                        "torso_joint", "left_shoulder_pitch_joint",
+                        "right_shoulder_pitch_joint", "right_shoulder_roll_joint",
+                        "right_shoulder_yaw_joint", "right_elbow_joint",
+                        "right_wrist_yaw_joint", "right_wrist_pitch_joint", "right_wrist_roll_joint",
+                        "left_hand_thumb_0_joint", "left_hand_thumb_1_joint", "left_hand_thumb_2_joint",
+                        "left_hand_middle_0_joint", "left_hand_middle_1_joint",
+                        "left_hand_index_0_joint", "left_hand_index_1_joint",
+                        "right_hand_thumb_0_joint", "right_hand_thumb_1_joint", "right_hand_thumb_2_joint",
+                        "right_hand_index_0_joint", "right_hand_index_1_joint",
+                        "right_hand_middle_0_joint", "right_hand_middle_1_joint"
+                    ]
+
+                    try:
+                        left_arm_robot = robot.buildReducedRobot(
+                            list_of_joints_to_lock=joints_to_lock,
+                            reference_configuration=pin.neutral(robot.model),
+                        )
+                    except Exception:
+                        if "reduced_model" in cache_data:
+                            left_arm_robot = pin.RobotWrapper()
+                            left_arm_robot.model = cache_data["reduced_model"]
+                            left_arm_robot.data = left_arm_robot.model.createData()
+                        else:
+                            raise
+
+                    try:
+                        if 'L_ee' not in [f.name for f in left_arm_robot.model.frames]:
+                            left_arm_robot.model.addFrame(
+                                pin.Frame('L_ee',
+                                          left_arm_robot.model.getJointId('left_wrist_yaw_joint'),
+                                          pin.SE3(np.eye(3), np.array([0.05, 0, 0]).T),
+                                          pin.FrameType.OP_FRAME)
+                            )
+                            left_arm_robot.data = left_arm_robot.model.createData()
+                    except Exception:
+                        pass
+
+                    hierarchical_ik_solver = HierarchicalIKSolver(
+                        model=left_arm_robot,
+                        ee_frame_name='L_ee',
+                        ee_offset=0.05
+                    )
+                    print("[IK] ✓ HierarchicalIKSolver 初始化成功")
+
+                    # 初始化传统IK
+                    if SCIPY_AVAILABLE:
+                        try:
+                            traditional_ik = TraditionalIKSolver(
+                                model=left_arm_robot,
+                                ee_frame_name='L_ee',
+                                ee_offset=0.05
+                            )
+                            print("[IK] ✓ TraditionalIKSolver 初始化成功")
+                        except Exception:
+                            print("[IK] TraditionalIKSolver 初始化失败，将使用GT作为初值")
+
+                    # 设置主ik_solver为hierarchical（用于常规评测）
+                    ik_solver = hierarchical_ik_solver
+
+            except Exception as e:
+                print(f"[IK] ✗ HierarchicalIKSolver 初始化失败: {e}")
+                hierarchical_ik_solver = None
+        else:
+            print("[IK] ✗ HierarchicalIKSolver 不可用")
+
+        # 检查是否两种IK都可用
+        if analytical_ik_solver is None or hierarchical_ik_solver is None:
+            print("[IK] ✗ 双IK对比需要两种IK求解器都可用")
+            args.compare_ik = False
+
+    # 单IK模式
+    elif args.ik_solver == 'analytical':
+        # 使用解析 IK 求解器
+        if ANALYTICAL_IK_AVAILABLE:
+            print("[IK] 初始化解析 IK 求解器...")
+            try:
+                ik_solver = AnalyticalIKSolver(model_path='')
+                print("[IK] ✓ AnalyticalIKSolver 初始化成功 (~0.01ms/solve)")
+                args.use_real_ik = True
+            except Exception as e:
+                print(f"[IK] ✗ AnalyticalIKSolver 初始化失败: {e}")
+                args.use_real_ik = False
+        else:
+            print("[IK] 解析 IK 不可用，使用近似方法")
+            args.use_real_ik = False
+
+    elif args.use_real_ik:
         if REAL_IK_AVAILABLE:
             print("[IK] 初始化真实 IK 求解器...")
             try:
@@ -1436,10 +1816,20 @@ def main():
 
     # 辅助函数：查找目录下最新的 best_model checkpoint
     def find_latest_checkpoint(subdir: str) -> str:
-        """在指定子目录下查找最新的 best_model checkpoint"""
+        """在指定子目录下查找最新的 best_model checkpoint
+
+        支持两种目录结构:
+        1. 嵌套目录: subdir/transformer_XXX/best_model.pth
+        2. 扁平目录: subdir/best_model_XXX.pth
+        """
         import glob
+        # 先尝试匹配嵌套目录结构 */best_model*.pth
         pattern = os.path.join(args.checkpoint_dir, subdir, '*/best_model*.pth')
         matches = glob.glob(pattern)
+        if not matches:
+            # 再尝试直接匹配扁平目录结构 best_model*.pth
+            pattern = os.path.join(args.checkpoint_dir, subdir, 'best_model*.pth')
+            matches = glob.glob(pattern)
         if not matches:
             return None
         # 按修改时间排序，返回最新的
@@ -1448,9 +1838,9 @@ def main():
     # 定义模型配置（使用 ablation_anti 目录结构）
     if args.experiment == 'loss_ablation':
         models = {
-            'swivel_only': find_latest_checkpoint('loss/swivel_only'),
-            'elbow_only': find_latest_checkpoint('loss/elbow_only'),
-            'full_loss': find_latest_checkpoint('loss/full_loss'),
+            'swivel_only': find_latest_checkpoint('loss_ablation/swivel_only'),
+            'elbow_only': find_latest_checkpoint('loss_ablation/elbow_only'),
+            'full_loss': find_latest_checkpoint('loss_ablation/full_loss'),
         }
         # 过滤掉找不到的模型
         models = {k: v for k, v in models.items() if v is not None}
@@ -1522,6 +1912,7 @@ def main():
             latency = measure_inference_latency(
                 model, data['T_ee'][0], ws, device, sample_data,
                 ik_solver=ik_solver if args.use_real_ik else None,
+                ik_solver_type=args.ik_solver,
                 traditional_ik=traditional_ik if args.use_real_ik else None
             )
             print(f"  Network: {latency['network_latency_ms']:.3f} ms (p95: {latency['network_latency_p95_ms']:.3f} ms)")
@@ -1588,6 +1979,51 @@ def main():
 
         results[name] = metrics
 
+        # 双IK对比 (如果启用)
+        if args.compare_ik and analytical_ik_solver is not None and hierarchical_ik_solver is not None:
+            print(f"\n[双IK对比] 运行解析IK vs 数值IK对比...")
+
+            comparison_stats = compare_ik_solvers(
+                T_ee=T_ee_aligned,
+                pred_swivel=pred_swivel,
+                p_s=p_s_aligned,
+                p_w=p_w_aligned,
+                L_upper=L_upper_aligned,
+                L_lower=L_lower_aligned,
+                gt_joints=gt_joints_aligned,
+                analytical_ik=analytical_ik_solver,
+                hierarchical_ik=hierarchical_ik_solver,
+                traditional_ik=traditional_ik,
+                sample_ratio=args.ik_sample_ratio,
+                is_valid=is_valid_aligned,
+                verbose=True
+            )
+
+            # 合并对比结果到 metrics
+            metrics['analytical_ik_latency_ms'] = comparison_stats['analytical']['ik_latency_ms']
+            metrics['analytical_ik_latency_p95_ms'] = comparison_stats['analytical']['ik_latency_p95_ms']
+            metrics['analytical_joint_mae_vs_gt'] = comparison_stats['analytical']['joint_mae_vs_gt']
+            metrics['analytical_max_joint_error'] = comparison_stats['analytical']['max_joint_error']
+            metrics['analytical_success_rate'] = comparison_stats['analytical']['success_rate']
+            metrics['analytical_joint_mae_per_joint'] = comparison_stats['analytical']['joint_mae_per_joint']
+
+            metrics['hierarchical_ik_latency_ms'] = comparison_stats['hierarchical']['ik_latency_ms']
+            metrics['hierarchical_ik_latency_p95_ms'] = comparison_stats['hierarchical']['ik_latency_p95_ms']
+            metrics['hierarchical_joint_mae_vs_gt'] = comparison_stats['hierarchical']['joint_mae_vs_gt']
+            metrics['hierarchical_max_joint_error'] = comparison_stats['hierarchical']['max_joint_error']
+            metrics['hierarchical_success_rate'] = comparison_stats['hierarchical']['success_rate']
+            metrics['hierarchical_avg_iterations'] = comparison_stats['hierarchical'].get('avg_iterations', 0)
+            metrics['hierarchical_joint_mae_per_joint'] = comparison_stats['hierarchical']['joint_mae_per_joint']
+
+            metrics['ik_latency_speedup'] = comparison_stats['comparison']['ik_latency_speedup']
+            metrics['ik_joint_mae_diff'] = comparison_stats['comparison']['joint_mae_diff']
+            metrics['ik_max_joint_diff'] = comparison_stats['comparison']['max_joint_diff']
+            metrics['ik_joint_mae_diff_per_joint'] = comparison_stats['comparison']['joint_mae_diff_per_joint']
+            metrics['ik_success_rate_diff'] = comparison_stats['comparison']['success_rate_diff']
+
+            # 更新 results
+            results[name] = metrics
+
         # 关联分析 (如果启用)
         if args.analyze_correlation and args.use_real_ik and ik_solver is not None:
             # 清理模型名称用于文件名
@@ -1640,6 +2076,8 @@ def main():
             'dataset': dataset_name,
             'dataset_path': args.data_path,
             'ik_type': ik_type,
+            'ik_comparison': args.compare_ik if hasattr(args, 'compare_ik') else False,
+            'ik_sample_ratio': args.ik_sample_ratio if args.compare_ik else None,
             'timestamp': time.strftime("%Y-%m-%dT%H:%M:%S"),
             'num_frames': (len(data['T_ee']) - (window_size if 'window_size' in locals() and window_size is not None else 30) + 1) if 'pred_swivel' in locals() else len(data['T_ee']),
             'device': device,
